@@ -1,83 +1,97 @@
-# ---------------- IMPORTS ----------------
 import os
 import warnings
 import gradio as gr
+from dotenv import load_dotenv
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.chains import RetrievalQA
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 warnings.filterwarnings("ignore")
 
+load_dotenv()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# ---------------- LLM (Gemini) ----------------
+if not GOOGLE_API_KEY:
+    raise ValueError("GOOGLE_API_KEY not found. Please check your .env file.")
+
+
+# ---------------- LLM ----------------
 def get_llm():
-    llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.5)
-    return llm
+    return ChatGoogleGenerativeAI(
+        model="gemini-1.5-flash",
+        temperature=0.5,
+        google_api_key=GOOGLE_API_KEY,
+    )
 
 
-# ---------------- DOCUMENT LOADER ----------------
+# ---------------- Document Loader ----------------
 def document_loader(file):
     loader = PyPDFLoader(file.name)
-    documents = loader.load()
-    return documents
+    return loader.load()
 
 
-# ---------------- TEXT SPLITTER ----------------
-def text_splitter(documents):
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50)
-    chunks = splitter.split_documents(documents)
-    return chunks
+# ---------------- Text Splitter ----------------
+def text_splitter(data):
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=100,
+    )
+    return splitter.split_documents(data)
 
 
-# ---------------- EMBEDDINGS (Gemini) ----------------
-def embedding_model():
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    return embeddings
+# ---------------- Embeddings ----------------
+def get_embeddings():
+    return GoogleGenerativeAIEmbeddings(
+        model="models/embedding-001",
+        google_api_key=GOOGLE_API_KEY,
+    )
 
 
-# ---------------- VECTOR DATABASE ----------------
+# ---------------- Vector Database ----------------
 def vector_database(chunks):
-    embeddings = embedding_model()
-    vectordb = Chroma.from_documents(chunks, embeddings)
-    return vectordb
+    embeddings = get_embeddings()
+    return Chroma.from_documents(chunks, embeddings, persist_directory="./chroma_db")
 
 
-# ---------------- RETRIEVER ----------------
+# ---------------- Retriever ----------------
 def retriever(file):
-    documents = document_loader(file)
-    chunks = text_splitter(documents)
+    docs = document_loader(file)
+    chunks = text_splitter(docs)
     vectordb = vector_database(chunks)
     return vectordb.as_retriever()
 
 
-# ---------------- QA CHAIN ----------------
+# ---------------- QA Chain ----------------
 def retriever_qa(file, query):
     llm = get_llm()
     retriever_obj = retriever(file)
 
-    qa_chain = RetrievalQA.from_chain_type(
+    qa = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
         retriever=retriever_obj,
         return_source_documents=False,
     )
 
-    response = qa_chain.invoke(query)
+    response = qa.invoke(query)
     return response["result"]
 
 
-# ---------------- GRADIO UI ----------------
-rag_app = gr.Interface(
+# ---------------- Gradio Interface ----------------
+rag_application = gr.Interface(
     fn=retriever_qa,
-    inputs=[gr.File(label="Upload PDF"), gr.Textbox(label="Ask Question")],
+    allow_flagging="never",
+    inputs=[
+        gr.File(label="Upload PDF File", file_types=[".pdf"]),
+        gr.Textbox(label="Ask Question", lines=2),
+    ],
     outputs=gr.Textbox(label="Answer"),
-    title="RAG QA Bot (Gemini Version)",
-    description="Upload a PDF and ask questions from it.",
+    title="Gemini RAG Chatbot",
+    description="Upload a PDF and ask questions about its content.",
 )
 
 if __name__ == "__main__":
-    rag_app.launch(server_port=7860)
+    rag_application.launch(server_name="127.0.0.1", server_port=7860)
