@@ -94,4 +94,4 @@ rag_application = gr.Interface(
 )
 
 if __name__ == "__main__":
-    rag_application.launch(server_name="127.0.0.1", server_port=7860)
+    rag_application.launch(share=True)
