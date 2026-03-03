@@ -1,31 +1,21 @@
 # ---------------- IMPORTS ----------------
-from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams
-from ibm_watsonx_ai.metanames import EmbedTextParamsMetaNames
-from langchain_ibm import WatsonxLLM, WatsonxEmbeddings
+import os
+import warnings
+import gradio as gr
+
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.chains import RetrievalQA
-import gradio as gr
-import warnings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 warnings.filterwarnings("ignore")
 
 
-# ---------------- LLM ----------------
+# ---------------- LLM (Gemini) ----------------
 def get_llm():
-    parameters = {
-        GenParams.MAX_NEW_TOKENS: 256,
-        GenParams.TEMPERATURE: 0.5,
-    }
-
-    llm = WatsonxLLM(
-        model_id="mistralai/mistral-medium-2505",
-        url="https://us-south.ml.cloud.ibm.com",
-        project_id="skills-network",
-        params=parameters,
-    )
-
+    llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.5)
     return llm
 
 
@@ -43,28 +33,16 @@ def text_splitter(documents):
     return chunks
 
 
-# ---------------- EMBEDDING MODEL ----------------
-def watsonx_embedding():
-
-    embed_params = {
-        EmbedTextParamsMetaNames.TRUNCATE_INPUT_TOKENS: 3,
-        EmbedTextParamsMetaNames.RETURN_OPTIONS: {"input_text": True},
-    }
-
-    embedding = WatsonxEmbeddings(
-        model_id="ibm/slate-125m-english-rtrvr-v2",
-        url="https://us-south.ml.cloud.ibm.com",
-        project_id="skills-network",
-        params=embed_params,
-    )
-
-    return embedding
+# ---------------- EMBEDDINGS (Gemini) ----------------
+def embedding_model():
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    return embeddings
 
 
 # ---------------- VECTOR DATABASE ----------------
 def vector_database(chunks):
-    embedding_model = watsonx_embedding()
-    vectordb = Chroma.from_documents(chunks, embedding_model)
+    embeddings = embedding_model()
+    vectordb = Chroma.from_documents(chunks, embeddings)
     return vectordb
 
 
@@ -78,7 +56,6 @@ def retriever(file):
 
 # ---------------- QA CHAIN ----------------
 def retriever_qa(file, query):
-
     llm = get_llm()
     retriever_obj = retriever(file)
 
@@ -98,11 +75,9 @@ rag_app = gr.Interface(
     fn=retriever_qa,
     inputs=[gr.File(label="Upload PDF"), gr.Textbox(label="Ask Question")],
     outputs=gr.Textbox(label="Answer"),
-    title="PDF Question Answering Bot",
+    title="RAG QA Bot (Gemini Version)",
     description="Upload a PDF and ask questions from it.",
 )
 
-
-# ---------------- RUN APP ----------------
 if __name__ == "__main__":
     rag_app.launch(server_port=7860)
